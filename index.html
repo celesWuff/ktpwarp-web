@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>ktpWarp：课堂派自动签到</title>
+    <meta charset="utf-8" />
+    <link rel="icon" href="favicon.ico" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="这是 ktpWarp，课堂派自动签到的 web 客户端。在任何能联网的设备上，查看您 ktpWarp 服务器的签到情况，在网页中扫码，然后提交二维码签到。" />
+    <meta name="theme-color" content="#fafafa" />
+    <link rel="apple-touch-icon" href="logo192.png" />
+    <link rel="manifest" href="manifest.json" />
+    <!-- Water.css -->
+    <link rel="stylesheet" href="./water.min.css" />
+    <!-- Alpine.js v3.11.1 -->
+    <script defer src="./cdn.min.js"></script>
+    <!-- qr-scanner v1.4.2 -->
+    <script src="./qr-scanner.umd.min.js"></script>
+    <script>
+      if ("serviceWorker" in navigator) {
+        window.addEventListener("load", () => {
+          navigator.serviceWorker.register("./service-worker.js");
+        });
+      }
+    </script>
+    <style>
+      [x-cloak] {
+        display: none !important;
+      }
+    </style>
+  </head>
+
+  <body>
+    <h1>ktpWarp：课堂派自动签到</h1>
+    <noscript>需要启用 JavaScript 才能使用本页面。</noscript>
+
+    <div x-cloak x-data="ktpwarpWeb">
+      <div>
+        <h2>状态</h2>
+        <p x-text="showConnectionStatus"></p>
+
+        <h5 x-show="isConnected" x-transition:enter>
+          ktpwarp-server
+          <span x-text="ktpwarpServerVersion"></span>
+          <br />
+          Node.js
+          <span x-text="nodejsVersion"></span>
+        </h5>
+
+        <div x-show="isDisconnected || isConnecting" x-transition:enter>
+          <h5>在下面填写你的服务器地址，然后点按“连接”。</h5>
+          <input type="text" x-model="serverAddress" placeholder="wss://..." />
+        </div>
+
+        <button @click="connect" x-text="isConnected ? '断开' : '连接'" :disabled="isConnecting" x-transition:enter></button>
+        <button @click="restartServer" x-show="isConnected" x-transition:enter>重启服务器</button>
+      </div>
+
+      <div x-show="isConnected" x-transition:enter>
+        <h2>签到</h2>
+        <p x-show="!hasReceived签到">有新的签到任务时，就会显示在这里。</p>
+
+        <div x-show="hasReceived签到" x-transition>
+          <hr />
+          <h3>有新的签到任务</h3>
+
+          <div x-show="!is签到Executed">
+            <p x-show="签到TypeName !== '二维码签到'">
+              ⚠️ 课程 <span x-text="className"></span> 发现<span x-text="签到TypeName"></span>，将在 <span x-text="countdown"></span> 秒后<span
+                x-text="签到TypeName === '签入签出签到' ? '签入（或签出）' : '签到'"
+              ></span
+              >。
+            </p>
+            <p x-show="签到TypeName === '二维码签到'">
+              ⚠️ 课程 <span x-text="className"></span> 发现二维码签到，<span
+                x-text="isMitmScript ? '请使用您 iPhone 或 iPad 上的任意一种扫码工具来扫码' : '点按下面的“扫描二维码”来进行扫码'"
+              ></span
+              >。
+            </p>
+          </div>
+
+          <p x-show="is签到Executed" x-text="签到ProgressText" style="white-space: pre-line"></p>
+
+          <div x-show="!is签到Executed && 签到TypeName !== '二维码签到'">
+            <button @click="skip">跳过等待</button>
+            <button @click="cancel">取消签到</button>
+          </div>
+
+          <hr />
+          <br />
+        </div>
+
+        <button @click="toggleQrcodeScanner" x-show="!isMitmScript" x-text="isQrcodeScannerVisible ? '停止扫码' : '扫描/上传二维码'"></button>
+        <button @click="manualCheck">手动检查签到</button>
+
+        <div x-show="isQrcodeScannerVisible" x-transition>
+          <br />
+
+          <b>从相册选择二维码</b>
+          <input type="file" @change="processQrcodeSelectedFile" />
+
+          <br />
+
+          <div>
+            <b>选择摄像头</b>
+            <select x-model="qrcodeScannerCameraId" @change="qrcodeScanner.setCamera(qrcodeScannerCameraId)">
+              <option value="environment" selected>后置摄像头（默认）</option>
+              <option value="user">前置摄像头</option>
+              <template x-for="camera in qrcodeScannerCameras" :key="camera.id">
+                <option :value="camera.id" x-text="camera.label"></option>
+              </template>
+            </select>
+          </div>
+
+          <video x-ref="qrcodeScanner"></video>
+        </div>
+
+        <br />
+      </div>
+    </div>
+
+    <dialog id="pop-up-dialog">
+      <form method="dialog">
+        <p></p>
+        <menu style="display: flex; justify-content: flex-end">
+          <button>好</button>
+        </menu>
+      </form>
+    </dialog>
+
+    <div>
+      <h2>关于</h2>
+      <p>ktpwarp-web v1.0.0-beta</p>
+      <p><a href="https://github.com/celesWuff/ktpwarp-web">https://github.com/celesWuff/ktpwarp-web</a></p>
+      <p><a href="https://github.com/celesWuff/ktpwarp-server">https://github.com/celesWuff/ktpwarp-server</a></p>
+      <p>copyright (c) 2023 celesWuff, licensed under MIT License</p>
+    </div>
+
+    <script>
+      const __IS_MITM_SCRIPT__ = false;
+      const __MITM_SCRIPT_PRESET_SERVER_ADDRESS__ = "__SERVER_ADDRESS_PLACEHOLDER__";
+
+      function getServerAddress() {
+        if (__IS_MITM_SCRIPT__) {
+          return __MITM_SCRIPT_PRESET_SERVER_ADDRESS__;
+        } else {
+          return localStorage.getItem("serverAddress") || "";
+        }
+      }
+
+      function parseQrcodeResult(result) {
+        const url = new URL(result);
+        const ticketid = url.searchParams.get("ticketid");
+        const expire = url.searchParams.get("expire");
+        const sign = url.searchParams.get("sign");
+        return { ticketid, expire, sign };
+      }
+
+      // 捕捉 iOS 扫码结果，URL 中的二维码签到参数
+      const { ticketid, expire, sign } = parseQrcodeResult(window.location.href);
+
+      // 只有通过 .showModal() 显示才能保留正确的 CSS 样式
+      function showPopUpMessage(message) {
+        const dialog = document.getElementById("pop-up-dialog");
+        dialog.querySelector("p").textContent = message;
+        dialog.showModal();
+        dialog.querySelector("button").addEventListener("click", () => {
+          dialog.close();
+        });
+      }
+
+      function alpineComponent() {
+        return {
+          isMitmScript: __IS_MITM_SCRIPT__,
+
+          websocket: null,
+          serverAddress: getServerAddress(),
+          connectionStatus: "disconnected",
+          ktpwarpServerVersion: "",
+          nodejsVersion: "",
+
+          hasReceived签到: false,
+          className: "",
+          签到TypeName: "",
+          countdown: 0,
+          签到ProgressText: "",
+          isQrcodeScannerVisible: false,
+          qrcodeScanner: null,
+          qrcodeScannerCameras: [],
+          qrcodeScannerCameraId: "environment",
+
+          get isKtpwarpWebSecure() {
+            return window.location.protocol === "https:";
+          },
+          get isKtpwarpServerSecure() {
+            return this.serverAddress.startsWith("wss://");
+          },
+          get isConnecting() {
+            return this.connectionStatus === "connecting";
+          },
+          get isConnected() {
+            return this.connectionStatus === "connected";
+          },
+          get isDisconnected() {
+            return this.connectionStatus === "disconnected";
+          },
+
+          get is签到Executed() {
+            return this.签到ProgressText !== "";
+          },
+
+          init() {
+            if (this.serverAddress !== "") {
+              this.connect();
+            }
+
+            setInterval(() => {
+              if (this.countdown > 0) {
+                this.countdown--;
+              }
+            }, 1000);
+          },
+
+          reset() {
+            this.hasReceived签到 = false;
+            this.签到ProgressText = "";
+            if (this.isQrcodeScannerVisible) {
+              this.toggleQrcodeScanner();
+            }
+          },
+
+          showConnectionStatus() {
+            if (this.isConnecting) {
+              return "正在连接...";
+            } else if (this.isConnected) {
+              return "已连接";
+            } else {
+              return "未连接";
+            }
+          },
+
+          connect() {
+            if (this.isDisconnected) {
+              try {
+                this.connectionStatus = "connecting";
+                this.websocket = new WebSocket(this.serverAddress);
+              } catch (e) {
+                showPopUpMessage("连接失败，请检查服务器地址是否正确。");
+                this.connectionStatus = "disconnected";
+                return;
+              }
+
+              this.websocket.onopen = () => {
+                this.connectionStatus = "connected";
+                localStorage.setItem("serverAddress", this.serverAddress);
+
+                if (ticketid && expire && sign) {
+                  this.submitQrcode(ticketid, expire, sign);
+                }
+              };
+
+              this.websocket.onclose = () => {
+                this.connectionStatus = "disconnected";
+                this.reset();
+              };
+
+              this.websocket.onerror = () => {
+                if (this.isKtpwarpWebSecure && !this.isKtpwarpServerSecure) {
+                  showPopUpMessage("您不能在加密的网站上，连接到未加密的 ktpwarp-server 服务器。");
+                } else if (!this.isKtpwarpWebSecure && this.isKtpwarpServerSecure) {
+                  showPopUpMessage("您不能在未加密的网站上，连接到加密的 ktpwarp-server 服务器。");
+                } else {
+                  showPopUpMessage("连接失败，请检查服务器地址是否正确。");
+                }
+                this.connectionStatus = "disconnected";
+              };
+
+              this.websocket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+
+                if (data.type === "welcome") {
+                  this.ktpwarpServerVersion = data.data.ktpwarpServerVersion;
+                  this.nodejsVersion = data.data.nodejsVersion;
+                }
+
+                if (data.type === "skipSuccess") {
+                  this.签到ProgressText = "已跳过等待。\n\n";
+                }
+
+                if (data.type === "cancelSuccess") {
+                  this.签到ProgressText = "已取消签到。";
+                }
+
+                if (data.type.match(/^new.*签到$/)) {
+                  this.set签到Message(data);
+                }
+
+                if (data.type === "数字签到code") {
+                  this.签到ProgressText += `签到码为 ${data.data.code}。\n\n`;
+                }
+
+                if (data.type === "receivedQrcode") {
+                  this.签到ProgressText = "已接收到二维码。\n\n";
+                }
+
+                if (data.type === "签到success") {
+                  this.签到ProgressText += `${data.data.friendlyName}：签到成功\n`;
+                }
+
+                if (data.type === "签到failure") {
+                  this.签到ProgressText += `${data.data.friendlyName}：${data.data.failureMessage}\n`;
+                }
+              };
+            } else if (this.isConnected) {
+              this.websocket.close();
+            }
+          },
+
+          restartServer() {
+            this.websocket.send(JSON.stringify({ type: "restart" }));
+            this.websocket.close();
+            showPopUpMessage("服务器已重新启动，请等待几秒再重新连接。");
+          },
+
+          set签到Message(data) {
+            this.hasReceived签到 = true;
+            this.签到ProgressText = "";
+            this.className = data.data.class_.friendlyName;
+
+            if (data.type !== "newQrcode签到") {
+              this.countdown = data.data.delaySeconds;
+            }
+
+            switch (data.type) {
+              case "new数字签到":
+                this.签到TypeName = "数字签到";
+                break;
+              case "newGps签到":
+                this.签到TypeName = "GPS 签到";
+                break;
+              case "newQrcode签到":
+                this.签到TypeName = "二维码签到";
+                break;
+              case "new签入签出签到":
+                this.签到TypeName = "签入签出签到";
+                break;
+            }
+          },
+
+          skip() {
+            this.websocket.send(JSON.stringify({ type: "skip" }));
+          },
+
+          cancel() {
+            this.websocket.send(JSON.stringify({ type: "cancel" }));
+          },
+
+          manualCheck() {
+            this.websocket.send(JSON.stringify({ type: "manualCheck" }));
+          },
+
+          toggleQrcodeScanner() {
+            if (this.qrcodeScanner === null) {
+              this.initQrcodeScanner();
+            }
+
+            if (this.isQrcodeScannerVisible) {
+              this.isQrcodeScannerVisible = false;
+              this.qrcodeScanner.stop();
+            } else {
+              this.isQrcodeScannerVisible = true;
+              this.qrcodeScanner.start();
+            }
+          },
+
+          initQrcodeScanner() {
+            this.qrcodeScanner = new QrScanner(
+              this.$refs.qrcodeScanner,
+              (result) => {
+                if (!result.data.startsWith("https://w.ketangpai.com/checkIn/checkinCodeResult")) {
+                  return;
+                }
+                const { ticketid, expire, sign } = parseQrcodeResult(result.data);
+                this.submitQrcode(ticketid, expire, sign);
+                this.toggleQrcodeScanner();
+              },
+              {
+                highlightScanRegion: true,
+                highlightCodeOutline: true,
+              }
+            );
+
+            QrScanner.listCameras(true).then((cameras) => {
+              cameras.forEach((camera) => {
+                this.qrcodeScannerCameras.push(camera);
+              });
+            });
+          },
+
+          processQrcodeSelectedFile(event) {
+            const file = event.target.files[0];
+            if (!file) {
+              return;
+            }
+            QrScanner.scanImage(file, { returnDetailedScanResult: true })
+              .then((result) => {
+                if (!result.data.startsWith("https://w.ketangpai.com/checkIn/checkinCodeResult")) {
+                  showPopUpMessage("不是课堂派二维码。");
+                  return;
+                }
+                const { ticketid, expire, sign } = parseQrcodeResult(result.data);
+                this.submitQrcode(ticketid, expire, sign);
+                this.toggleQrcodeScanner();
+              })
+              .catch((error) => {
+                showPopUpMessage("无法识别二维码。");
+              });
+          },
+
+          submitQrcode(ticketid, expire, sign) {
+            this.hasReceived签到 = true;
+            this.签到ProgressText = "已提交本次签到的二维码。\n\n";
+
+            this.websocket.send(
+              JSON.stringify({
+                type: "submitQrcode",
+                data: {
+                  ticketid,
+                  expire,
+                  sign,
+                },
+              })
+            );
+          },
+        };
+      } // yours sincerely, })})})}
+
+      document.addEventListener("alpine:init", () => {
+        Alpine.data("ktpwarpWeb", alpineComponent);
+      });
+
+      if (navigator.serviceWorker && !navigator.serviceWorker.controller && !__IS_MITM_SCRIPT__) {
+        navigator.serviceWorker.register("serviceworker.js");
+      }
+    </script>
+  </body>
+</html>
