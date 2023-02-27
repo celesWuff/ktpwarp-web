@@ -22,7 +22,7 @@ https://celeswuff.github.io/ktpwarp-web/
 
 - 部署在 `https://`（加密）网站上的 ktpwarp-web，不能访问 `ws://`（未加密）的 ktpwarp-server。**反之亦然。**
 
-- 在本地运行的 ktpwarp-web，无法使用扫码功能。
+- 在本地运行的 ktpwarp-web，无法使用扫码功能。即使可以打开摄像头，也无法识别出二维码。
 
 ## 许可证
 
