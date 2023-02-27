@@ -18,13 +18,6 @@
     <script defer src="./cdn.min.js"></script>
     <!-- qr-scanner v1.4.2 -->
     <script src="./qr-scanner.umd.min.js"></script>
-    <script>
-      if ("serviceWorker" in navigator) {
-        window.addEventListener("load", () => {
-          navigator.serviceWorker.register("./service-worker.js");
-        });
-      }
-    </script>
     <style>
       [x-cloak] {
         display: none !important;
