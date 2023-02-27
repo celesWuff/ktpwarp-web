@@ -73,12 +73,7 @@
               ></span
               >。
             </p>
-            <p x-show="签到TypeName === '二维码签到'">
-              ⚠️ 课程 <span x-text="className"></span> 发现二维码签到，<span
-                x-text="isMitmScript ? '请使用您 iPhone 或 iPad 上的任意一种扫码工具来扫码' : '点按下面的“扫描二维码”来进行扫码'"
-              ></span
-              >。
-            </p>
+            <p x-show="签到TypeName === '二维码签到'">⚠️ 课程 <span x-text="className"></span> 发现二维码签到，点按下面的“扫描二维码”来进行扫码。</p>
           </div>
 
           <p x-show="is签到Executed" x-text="签到ProgressText" style="white-space: pre-line"></p>
@@ -92,7 +87,7 @@
           <br />
         </div>
 
-        <button @click="toggleQrcodeScanner" x-show="!isMitmScript" x-text="isQrcodeScannerVisible ? '停止扫码' : '扫描/上传二维码'"></button>
+        <button @click="toggleQrcodeScanner" x-text="isQrcodeScannerVisible ? '停止扫码' : '扫描/上传二维码'"></button>
         <button @click="manualCheck">手动检查签到</button>
 
         <div x-show="isQrcodeScannerVisible" x-transition>
@@ -139,17 +134,6 @@
     </div>
 
     <script>
-      const __IS_MITM_SCRIPT__ = false;
-      const __MITM_SCRIPT_PRESET_SERVER_ADDRESS__ = "__SERVER_ADDRESS_PLACEHOLDER__";
-
-      function getServerAddress() {
-        if (__IS_MITM_SCRIPT__) {
-          return __MITM_SCRIPT_PRESET_SERVER_ADDRESS__;
-        } else {
-          return localStorage.getItem("serverAddress") || "";
-        }
-      }
-
       function parseQrcodeResult(result) {
         const url = new URL(result);
         const ticketid = url.searchParams.get("ticketid");
@@ -173,10 +157,8 @@
 
       function alpineComponent() {
         return {
-          isMitmScript: __IS_MITM_SCRIPT__,
-
           websocket: null,
-          serverAddress: getServerAddress(),
+          serverAddress: localStorage.getItem("serverAddress") || "",
           connectionStatus: "disconnected",
           ktpwarpServerVersion: "",
           nodejsVersion: "",
@@ -441,7 +423,7 @@
         Alpine.data("ktpwarpWeb", alpineComponent);
       });
 
-      if (navigator.serviceWorker && !navigator.serviceWorker.controller && !__IS_MITM_SCRIPT__) {
+      if (navigator.serviceWorker && !navigator.serviceWorker.controller) {
         navigator.serviceWorker.register("serviceworker.js");
       }
     </script>
