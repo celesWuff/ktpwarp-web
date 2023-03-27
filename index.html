@@ -34,28 +34,31 @@
         <h2>状态</h2>
         <p x-text="showConnectionStatus"></p>
 
-        <h5 x-show="isConnected" x-transition:enter>
-          ktpwarp-server
-          <span x-text="ktpwarpServerVersion"></span>
-          <br />
-          Node.js
-          <span x-text="nodejsVersion"></span>
-        </h5>
-
         <div x-show="isDisconnected || isConnecting" x-transition:enter>
           <h5>在下面填写你的服务器地址，然后点按“连接”。</h5>
           <input type="text" x-model="serverAddress" placeholder="wss://..." />
         </div>
 
         <button @click="connect" x-text="isConnected ? '断开' : '连接'" :disabled="isConnecting" x-transition:enter></button>
-        <button @click="restartServer" x-show="isConnected" x-transition:enter>重启服务器</button>
+        <button @click="showSystemInformation" x-show="isConnected" x-transition:enter>系统信息</button>
       </div>
 
       <div x-show="isConnected" x-transition:enter>
         <h2>签到</h2>
-        <p x-show="!hasReceived签到">有新的签到任务时，就会显示在这里。</p>
 
-        <div x-show="hasReceived签到" x-transition>
+        <p x-show="!currentClass">没有正在进行的课程。</p>
+        <p x-show="!currentClass">将不会自动发现新签到，如果有正在进行的签到，请点按“手动检查签到”。</p>
+
+        <p x-show="currentClass">正在进行的课程：<span x-text="currentClass.friendlyName"></span></p>
+        <p x-show="currentClass">有新的签到任务时，就会显示在这里。</p>
+
+        <div x-show="finished签到Message">
+          <hr />
+          <h3>已完成的其他签到</h3>
+          <p x-text="finished签到Message" style="white-space: pre-line"></p>
+        </div>
+
+        <div x-show="hasReceived签到" x-transition:enter>
           <hr />
           <h3>有新的签到任务</h3>
 
@@ -82,8 +85,20 @@
 
         <button @click="toggleQrcodeScanner" x-text="isQrcodeScannerVisible ? '停止扫码' : '扫描/上传二维码'"></button>
         <button @click="manualCheck">手动检查签到</button>
+        <p x-show="showManualCheckToast" x-transition.duration.300ms>正在手动检查签到，若有新的签到将会通知您。</p>
 
         <div x-show="isQrcodeScannerVisible" x-transition>
+          <div x-show="isPhone">
+            <br />
+            <hr />
+            <b>⚠ 您正在使用手机。</b>
+            <p>这里的扫码器识别率很低。</p>
+            <p>如需扫码，强烈建议使用其他方案。</p>
+            <p>Android：<a href="https://github.com/celesWuff/ktpwarp-android">https://github.com/celesWuff/ktpwarp-android</a></p>
+            <p>iOS：<a href="https://github.com/celesWuff/ktpwarp-ios-mitm">https://github.com/celesWuff/ktpwarp-ios-mitm</a></p>
+            <hr />
+          </div>
+
           <br />
 
           <b>从相册选择二维码</b>
@@ -103,6 +118,8 @@
           </div>
 
           <video x-ref="qrcodeScanner"></video>
+
+          <p>如果看不到摄像头画面，请授予摄像头权限，然后点击“停止扫码”，再重新打开扫码器。</p>
         </div>
 
         <br />
@@ -111,7 +128,7 @@
 
     <dialog id="pop-up-dialog">
       <form method="dialog">
-        <p></p>
+        <p style="white-space: pre-line"></p>
         <menu style="display: flex; justify-content: flex-end">
           <button>好</button>
         </menu>
@@ -120,13 +137,22 @@
 
     <div>
       <h2>关于</h2>
-      <p>ktpwarp-web v1.0.0-beta.1</p>
+      <p>ktpwarp-web v1.1.0-beta</p>
       <p><a href="https://github.com/celesWuff/ktpwarp-web">https://github.com/celesWuff/ktpwarp-web</a></p>
       <p><a href="https://github.com/celesWuff/ktpwarp-server">https://github.com/celesWuff/ktpwarp-server</a></p>
       <p>copyright (c) 2023 celesWuff, licensed under MIT License</p>
     </div>
 
     <script>
+      let serverAddress;
+
+      const currentUrl = new URL(window.location.href);
+      if (currentUrl.searchParams.has("server")) {
+        serverAddress = currentUrl.searchParams.get("server");
+      } else {
+        serverAddress = localStorage.getItem("serverAddress") || ""
+      }
+
       function parseQrcodeResult(result) {
         const url = new URL(result);
         const ticketid = url.searchParams.get("ticketid");
@@ -148,19 +174,36 @@
         });
       }
 
+      const 签到TypeNameMap = {
+        new数字签到: "数字签到",
+        newGps签到: "GPS 签到",
+        newQrcode签到: "二维码签到",
+        new签入签出签到: "签入签出签到",
+      };
+
       function alpineComponent() {
         return {
+          // websocket connection
           websocket: null,
-          serverAddress: localStorage.getItem("serverAddress") || "",
+          serverAddress: serverAddress,
           connectionStatus: "disconnected",
+
+          // welcome message / system info
           ktpwarpServerVersion: "",
           nodejsVersion: "",
+          schedule: [],
+          currentClass: null,
 
+          // 签到 panel
+          finished签到Message: "",
           hasReceived签到: false,
           className: "",
           签到TypeName: "",
           countdown: 0,
           签到ProgressText: "",
+          showManualCheckToast: false,
+
+          // qrcode scanner
           isQrcodeScannerVisible: false,
           qrcodeScanner: null,
           qrcodeScannerCameras: [],
@@ -186,6 +229,15 @@
             return this.签到ProgressText !== "";
           },
 
+          get isPhone() {
+            return (
+              navigator.userAgent.toLowerCase().indexOf("android") > -1 ||
+              navigator.userAgent.match(/iPhone/i) ||
+              navigator.userAgent.match(/iPad/i) ||
+              navigator.userAgent.match(/iPod/i)
+            );
+          },
+
           init() {
             if (this.serverAddress !== "") {
               this.connect();
@@ -199,6 +251,7 @@
           },
 
           reset() {
+            this.finished签到Message = "";
             this.hasReceived签到 = false;
             this.签到ProgressText = "";
             if (this.isQrcodeScannerVisible) {
@@ -258,6 +311,24 @@
                 if (data.type === "welcome") {
                   this.ktpwarpServerVersion = data.data.ktpwarpServerVersion;
                   this.nodejsVersion = data.data.nodejsVersion;
+                  this.schedule = data.data.schedule;
+                  this.currentClass = data.data.currentClass;
+
+                  this.setFinished签到Message(data.data.finished签到s);
+
+                  if (data.data.pending签到) {
+                    this.set签到Message(data.data.pending签到);
+
+                    data.data.pending签到.results.forEach((result) => {
+                      if (result.type === "签到success") {
+                        this.签到ProgressText += `${result.data.friendlyName}：签到成功\n`;
+                      }
+
+                      if (result.type === "签到failure") {
+                        this.签到ProgressText += `${result.data.friendlyName}：${result.data.failureMessage}\n`;
+                      }
+                    });
+                  }
                 }
 
                 if (data.type === "skipSuccess") {
@@ -293,10 +364,33 @@
             }
           },
 
-          restartServer() {
-            this.websocket.send(JSON.stringify({ type: "restart" }));
-            this.websocket.close();
-            showPopUpMessage("服务器已重新启动，请等待几秒再重新连接。");
+          showSystemInformation() {
+            const weekdayNames = ["日", "一", "二", "三", "四", "五", "六"];
+            const systemVersions = `软件版本：\nktpwarp-server ${this.ktpwarpServerVersion}\nNode.js ${this.nodejsVersion}\n\n`;
+            const schedule =
+              "课程表：\n" + this.schedule.map((c) => `${c.friendlyName}，每周${weekdayNames[c.dayOfWeek]}，${c.startTime} 至 ${c.endTime}`).join("\n");
+            showPopUpMessage(systemVersions + schedule);
+          },
+
+          setFinished签到Message(finished签到s) {
+            finished签到s.forEach((finished签到) => {
+              if (this.finished签到Message !== "") this.finished签到Message += "\n";
+
+              this.finished签到Message += "签到类型：";
+
+              this.finished签到Message += 签到TypeNameMap[finished签到.type];
+              this.finished签到Message += "\n";
+
+              finished签到.results.forEach((result) => {
+                if (result.type === "签到success") {
+                  this.finished签到Message += `${result.data.friendlyName}：签到成功\n`;
+                }
+
+                if (result.type === "签到failure") {
+                  this.finished签到Message += `${result.data.friendlyName}：${result.data.failureMessage}\n`;
+                }
+              });
+            });
           },
 
           set签到Message(data) {
@@ -308,20 +402,7 @@
               this.countdown = data.data.delaySeconds;
             }
 
-            switch (data.type) {
-              case "new数字签到":
-                this.签到TypeName = "数字签到";
-                break;
-              case "newGps签到":
-                this.签到TypeName = "GPS 签到";
-                break;
-              case "newQrcode签到":
-                this.签到TypeName = "二维码签到";
-                break;
-              case "new签入签出签到":
-                this.签到TypeName = "签入签出签到";
-                break;
-            }
+            this.签到TypeName = 签到TypeNameMap[data.type];
           },
 
           skip() {
@@ -333,6 +414,11 @@
           },
 
           manualCheck() {
+            this.showManualCheckToast = true;
+            setTimeout(() => {
+              this.showManualCheckToast = false;
+            }, 3000);
+
             this.websocket.send(JSON.stringify({ type: "manualCheck" }));
           },
 
