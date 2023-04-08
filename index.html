@@ -150,7 +150,7 @@
       if (currentUrl.searchParams.has("server")) {
         serverAddress = currentUrl.searchParams.get("server");
       } else {
-        serverAddress = localStorage.getItem("serverAddress") || ""
+        serverAddress = localStorage.getItem("serverAddress") || "";
       }
 
       function parseQrcodeResult(result) {
