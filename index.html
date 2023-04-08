@@ -141,6 +141,7 @@
       <p><a href="https://github.com/celesWuff/ktpwarp-web">https://github.com/celesWuff/ktpwarp-web</a></p>
       <p><a href="https://github.com/celesWuff/ktpwarp-server">https://github.com/celesWuff/ktpwarp-server</a></p>
       <p>copyright (c) 2023 celesWuff, licensed under MIT License</p>
+      <button id="install-button" hidden>将 ktpWarp 安装到系统</button>
     </div>
 
     <script>
@@ -505,6 +506,30 @@
       if (navigator.serviceWorker && !navigator.serviceWorker.controller) {
         navigator.serviceWorker.register("serviceworker.js");
       }
+
+      // pwa install prompt
+      const installButton = document.getElementById("install-button");
+
+      window.addEventListener("beforeinstallprompt", (event) => {
+        event.preventDefault();
+        window.deferredPrompt = event;
+        installButton.hidden = false;
+      });
+
+      installButton.addEventListener("click", async () => {
+        const promptEvent = window.deferredPrompt;
+        if (!promptEvent) {
+          return;
+        }
+        promptEvent.prompt();
+        const result = await promptEvent.userChoice;
+        window.deferredPrompt = null;
+        installButton.hidden = true;
+      });
+
+      window.addEventListener("appinstalled", (event) => {
+        window.deferredPrompt = null;
+      });
     </script>
   </body>
 </html>
